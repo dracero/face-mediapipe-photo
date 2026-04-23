@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Database Test</title>
+</head>
+<body>
+    <h1>Database Test</h1>
+    <div id="status">Loading...</div>
+    <div id="results"></div>
+    
+    <script type="module">
+        try {
+            console.log('Loading database module...');
+            const { supabase, initializeDatabase } = await import('/lib/database.js');
+            console.log('Database module loaded successfully');
+            
+            document.getElementById('status').textContent = 'Database module loaded';
+            
+            console.log('Initializing database...');
+            await initializeDatabase();
+            console.log('Database initialized successfully');
+            
+            document.getElementById('status').textContent = 'Database initialized successfully';
+            
+            // Test basic functionality
+            console.log('Testing database operations...');
+            const result = await supabase.from('people').select('*');
+            console.log('Query result:', result);
+            
+            document.getElementById('results').innerHTML = `
+                <h2>Test Results:</h2>
+                <p>People query: ${JSON.stringify(result)}</p>
+            `;
+            
+        } catch (error) {
+            console.error('Database test failed:', error);
+            document.getElementById('status').textContent = 'Error: ' + error.message;
+            document.getElementById('results').innerHTML = `
+                <h2>Error Details:</h2>
+                <pre>${error.stack}</pre>
+            `;
+        }
+    </script>
+</body>
+</html>

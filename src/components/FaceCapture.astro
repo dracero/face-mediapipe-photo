@@ -1,6 +1,6 @@
 ---
-// FaceCapture component — auto-captures face photos using MediaPipe FaceLandmarker
-// Storage: localStorage (no database needed)
+// FaceCapture component — detecta rostro con ojos abiertos y captura al presionar botón
+// Storage: SQLite database
 ---
 
 <!-- Start screen -->
@@ -8,8 +8,8 @@
   <div class="start-content">
     <div class="start-title">FACE<br />CAPTURE</div>
     <p class="start-sub">
-      Alineá tu rostro dentro del óvalo.<br />
-      La foto se toma automáticamente.
+      Alineá tu rostro dentro del óvalo con los ojos abiertos.<br />
+      Cuando estés listo, presioná el botón para tomar la foto.
     </p>
     <div class="name-input-group">
       <label for="person-name" class="name-label">Nombre de la persona</label>
@@ -27,6 +27,7 @@
   <div class="logo">FACE<span>CAPTURE</span></div>
   <div class="header-right">
     <a href="/compare" class="nav-btn">Comparar rostros</a>
+    <button class="clear-btn" id="clear-db-btn" title="Borrar base de datos">🗑 Borrar DB</button>
     <div class="status-pill" id="status-pill">
       <div class="status-dot"></div>
       <span id="status-text">INACTIVO</span>
@@ -40,10 +41,775 @@
     <div class="viewport" id="viewport">
       <video id="video" autoplay muted playsinline></video>
       <canvas id="canvas"></canvas>
+
       <div class="face-guide">
         <div class="face-oval" id="face-oval">
           <div class="bracket tl"></div>
           <div class="bracket tr"></div>
           <div class="bracket bl"></div>
           <div class="bracket br"></div>
-          <svg class="progress-ring" id="progress-ring"
+        </div>
+        <div class="face-status" id="face-status">Posicioná tu rostro</div>
+      </div>
+
+      <!-- Botón de captura flotante sobre la cámara -->
+      <button class="capture-btn" id="capture-btn" disabled aria-label="Tomar foto">
+        <span class="capture-btn-icon">◎</span>
+        <span class="capture-btn-label">Tomar foto</span>
+      </button>
+    </div>
+
+    <div class="controls">
+      <div class="capture-info">
+        <div class="info-title">Captura manual</div>
+        <div class="info-desc">
+          Mirá a la cámara con los ojos abiertos.<br />
+          El botón se activa cuando tu rostro está listo.
+        </div>
+      </div>
+
+      <div class="recent-captures" id="recent-captures">
+        <div class="captures-title">Capturas recientes</div>
+        <div class="captures-list" id="captures-list">
+          <div class="empty-state">
+            <span class="icon">◎</span>
+            Las fotos capturadas aparecerán aquí
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</main>
+
+<style>
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    font-family: 'DM Mono', monospace;
+    background: #0a0a0a;
+    color: #e8e8e8;
+    overflow: hidden;
+  }
+
+  /* ── Start screen ──────────────────────────────────────────────────── */
+  #start-screen {
+    position: fixed;
+    inset: 0;
+    background: #0a0a0a;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 100;
+  }
+
+  .start-content {
+    text-align: center;
+    max-width: 420px;
+    padding: 0 24px;
+  }
+
+  .start-title {
+    font-family: 'Syne', sans-serif;
+    font-weight: 800;
+    font-size: 48px;
+    line-height: 0.9;
+    letter-spacing: 0.08em;
+    color: #fff;
+    margin-bottom: 24px;
+  }
+
+  .start-sub {
+    font-size: 14px;
+    line-height: 1.6;
+    color: #888;
+    margin-bottom: 32px;
+  }
+
+  .name-input-group { margin-bottom: 32px; }
+
+  .name-label {
+    display: block;
+    font-size: 12px;
+    letter-spacing: 0.08em;
+    color: #666;
+    margin-bottom: 8px;
+  }
+
+  .name-input {
+    width: 100%;
+    padding: 16px 20px;
+    background: #111;
+    border: 1px solid #2a2a2a;
+    border-radius: 12px;
+    color: #e8e8e8;
+    font-family: 'DM Mono', monospace;
+    font-size: 14px;
+    outline: none;
+    transition: border-color 0.2s;
+  }
+  .name-input:focus { border-color: #00ff88; }
+  .name-input::placeholder { color: #555; }
+
+  .start-btn {
+    padding: 16px 32px;
+    background: #00ff88;
+    color: #000;
+    font-family: 'DM Mono', monospace;
+    font-weight: 500;
+    font-size: 14px;
+    letter-spacing: 0.08em;
+    border: none;
+    border-radius: 100px;
+    cursor: pointer;
+    transition: opacity 0.2s, transform 0.2s;
+  }
+  .start-btn:hover { opacity: 0.85; transform: scale(1.02); }
+  .start-btn:disabled { opacity: 0.3; cursor: not-allowed; }
+
+  .loading-bar {
+    margin-top: 24px;
+    height: 2px;
+    background: #1a1a1a;
+    border-radius: 1px;
+    overflow: hidden;
+    opacity: 0;
+    transition: opacity 0.3s;
+  }
+  .loading-bar.active { opacity: 1; }
+  .loading-bar-fill {
+    height: 100%;
+    background: #00ff88;
+    width: 0%;
+    transition: width 0.3s;
+  }
+
+  /* ── Header ────────────────────────────────────────────────────────── */
+  header {
+    position: fixed;
+    top: 0; left: 0; right: 0;
+    height: 56px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 24px;
+    background: rgba(10,10,10,0.85);
+    backdrop-filter: blur(12px);
+    border-bottom: 1px solid #1f1f1f;
+    z-index: 10;
+  }
+
+  .logo {
+    font-family: 'Syne', sans-serif;
+    font-weight: 800;
+    font-size: 18px;
+    letter-spacing: 0.08em;
+    color: #fff;
+  }
+  .logo span { color: #00ff88; }
+
+  .header-right { display: flex; align-items: center; gap: 20px; }
+
+  .nav-btn {
+    color: #888;
+    font-size: 12px;
+    letter-spacing: 0.06em;
+    text-decoration: none;
+    transition: color 0.2s;
+  }
+  .nav-btn:hover { color: #00ff88; }
+
+  .clear-btn {
+    padding: 5px 12px;
+    background: transparent;
+    border: 1px solid #2a2a2a;
+    border-radius: 100px;
+    color: #666;
+    font-family: 'DM Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 0.06em;
+    cursor: pointer;
+    transition: border-color 0.2s, color 0.2s;
+  }
+  .clear-btn:hover { border-color: #ef4444; color: #ef4444; }
+
+  .status-pill {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 12px;
+    background: #111;
+    border: 1px solid #2a2a2a;
+    border-radius: 100px;
+  }
+  .status-dot {
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: #555;
+    transition: background 0.3s;
+  }
+  .status-pill.active .status-dot { background: #00ff88; }
+  #status-text {
+    font-size: 10px;
+    letter-spacing: 0.12em;
+    color: #666;
+    transition: color 0.3s;
+  }
+  .status-pill.active #status-text { color: #00ff88; }
+
+  /* ── Main ──────────────────────────────────────────────────────────── */
+  main {
+    display: flex;
+    height: 100vh;
+    padding-top: 56px;
+  }
+
+  .camera-area { flex: 1; display: flex; }
+
+  .viewport {
+    flex: 1;
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #000;
+    overflow: hidden;
+  }
+
+  #video {
+    width: 100%; height: 100%;
+    object-fit: cover;
+    transform: scaleX(-1);
+  }
+
+  #canvas {
+    position: absolute;
+    inset: 0;
+    width: 100%; height: 100%;
+    pointer-events: none;
+  }
+
+  /* ── Face guide ─────────────────────────────────────────────────────── */
+  .face-guide {
+    position: absolute;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 20px;
+    pointer-events: none;
+  }
+
+  .face-oval {
+    position: relative;
+    width: 260px;
+    height: 320px;
+    border: 2px solid rgba(255,255,255,0.2);
+    border-radius: 50%;
+    transition: border-color 0.3s;
+  }
+  .face-oval.ready { border-color: #00ff88; box-shadow: 0 0 24px rgba(0,255,136,0.25); }
+  .face-oval.no-face { border-color: rgba(255,255,255,0.15); }
+
+  .bracket {
+    position: absolute;
+    width: 20px; height: 20px;
+    border: 2px solid #00ff88;
+    transition: opacity 0.3s;
+  }
+  .bracket.tl { top: -2px; left: -2px; border-right: none; border-bottom: none; }
+  .bracket.tr { top: -2px; right: -2px; border-left: none; border-bottom: none; }
+  .bracket.bl { bottom: -2px; left: -2px; border-right: none; border-top: none; }
+  .bracket.br { bottom: -2px; right: -2px; border-left: none; border-top: none; }
+
+  .face-status {
+    font-size: 13px;
+    letter-spacing: 0.06em;
+    color: #888;
+    text-align: center;
+    padding: 10px 20px;
+    background: rgba(0,0,0,0.65);
+    border-radius: 100px;
+    backdrop-filter: blur(8px);
+    transition: color 0.3s;
+    pointer-events: none;
+  }
+  .face-status.ready { color: #00ff88; }
+
+  /* ── Capture button (floating over camera) ──────────────────────────── */
+  .capture-btn {
+    position: absolute;
+    bottom: 32px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 14px 32px;
+    background: #00ff88;
+    color: #000;
+    font-family: 'DM Mono', monospace;
+    font-weight: 600;
+    font-size: 14px;
+    letter-spacing: 0.08em;
+    border: none;
+    border-radius: 100px;
+    cursor: pointer;
+    transition: opacity 0.25s, transform 0.25s, box-shadow 0.25s;
+    box-shadow: 0 4px 24px rgba(0,255,136,0.35);
+    white-space: nowrap;
+  }
+  .capture-btn:hover:not(:disabled) {
+    opacity: 0.9;
+    transform: translateX(-50%) scale(1.04);
+    box-shadow: 0 6px 32px rgba(0,255,136,0.5);
+  }
+  .capture-btn:disabled {
+    background: #1a1a1a;
+    color: #444;
+    box-shadow: none;
+    cursor: not-allowed;
+  }
+  .capture-btn-icon { font-size: 18px; }
+
+  /* ── Controls sidebar ───────────────────────────────────────────────── */
+  .controls {
+    width: 360px;
+    min-width: 300px;
+    padding: 24px;
+    border-left: 1px solid #1a1a1a;
+    display: flex;
+    flex-direction: column;
+    gap: 32px;
+    overflow-y: auto;
+  }
+
+  .capture-info {
+    padding: 20px;
+    background: #111;
+    border: 1px solid #1f1f1f;
+    border-radius: 12px;
+  }
+  .info-title {
+    font-family: 'Syne', sans-serif;
+    font-weight: 700;
+    font-size: 15px;
+    letter-spacing: 0.04em;
+    margin-bottom: 8px;
+  }
+  .info-desc {
+    font-size: 12px;
+    line-height: 1.6;
+    color: #888;
+  }
+
+  .recent-captures { flex: 1; display: flex; flex-direction: column; }
+  .captures-title {
+    font-family: 'Syne', sans-serif;
+    font-weight: 700;
+    font-size: 15px;
+    letter-spacing: 0.04em;
+    margin-bottom: 16px;
+  }
+  .captures-list {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    overflow-y: auto;
+  }
+
+  .empty-state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    height: 200px;
+    color: #444;
+    font-size: 12px;
+    text-align: center;
+    line-height: 1.6;
+  }
+  .empty-state .icon { font-size: 28px; color: #333; }
+
+  .capture-item {
+    display: flex;
+    gap: 12px;
+    padding: 12px;
+    background: #111;
+    border: 1px solid #1f1f1f;
+    border-radius: 8px;
+    transition: border-color 0.2s;
+  }
+  .capture-item:hover { border-color: #2a2a2a; }
+
+  .capture-thumb {
+    width: 60px; height: 45px;
+    border-radius: 6px;
+    object-fit: cover;
+    flex-shrink: 0;
+  }
+  .capture-info-item {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    flex: 1;
+    min-width: 0;
+  }
+  .capture-name {
+    font-size: 13px;
+    font-weight: 500;
+    color: #e8e8e8;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .capture-time {
+    font-size: 10px;
+    letter-spacing: 0.08em;
+    color: #666;
+  }
+
+  /* ── Responsive ──────────────────────────────────────────────────────── */
+  @media (max-width: 768px) {
+    .camera-area { flex-direction: column; }
+    .controls {
+      width: 100%;
+      min-width: unset;
+      border-left: none;
+      border-top: 1px solid #1a1a1a;
+      max-height: 40vh;
+    }
+    .face-oval { width: 200px; height: 260px; }
+    .capture-btn { bottom: 20px; padding: 12px 24px; font-size: 13px; }
+  }
+</style>
+
+<script type="module">
+import {
+  FaceLandmarker,
+  FilesetResolver,
+} from 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.18/+esm';
+import { supabase, clearDatabase } from '/lib/database.js';
+
+// ── Elements ──────────────────────────────────────────────────────────────────
+const startScreen    = document.getElementById('start-screen');
+const personNameInput = document.getElementById('person-name');
+const startBtn       = document.getElementById('start-btn');
+const loadingBar     = document.getElementById('loading-bar');
+const video          = document.getElementById('video');
+const canvas         = document.getElementById('canvas');
+const statusPill     = document.getElementById('status-pill');
+const statusText     = document.getElementById('status-text');
+const faceStatus     = document.getElementById('face-status');
+const faceOval       = document.getElementById('face-oval');
+const captureBtn     = document.getElementById('capture-btn');
+const capturesList   = document.getElementById('captures-list');
+
+// ── State ─────────────────────────────────────────────────────────────────────
+let faceLandmarker   = null;
+let stream           = null;
+let isDetecting      = false;
+let faceReady        = false;   // rostro detectado con ojos abiertos
+let currentPersonName = '';
+
+// La base de datos se inicializa automáticamente en el primer uso
+
+// ── Borrar DB ─────────────────────────────────────────────────────────────────
+document.getElementById('clear-db-btn').addEventListener('click', async () => {
+  if (!confirm('¿Borrar toda la base de datos? Esta acción no se puede deshacer.')) return;
+  await clearDatabase();
+  capturesList.innerHTML = `
+    <div class="empty-state">
+      <span class="icon">◎</span>
+      Las fotos capturadas aparecerán aquí
+    </div>`;
+  alert('Base de datos borrada.');
+});
+
+// ── Start screen ──────────────────────────────────────────────────────────────
+startBtn.addEventListener('click', async () => {
+  const name = personNameInput.value.trim();
+  if (!name) {
+    alert('Por favor, ingresá un nombre para la persona');
+    return;
+  }
+  currentPersonName = name;
+  await startSession();
+});
+
+async function startSession() {
+  try {
+    startBtn.disabled = true;
+    startBtn.textContent = 'Cargando modelo...';
+    loadingBar.classList.add('active');
+
+    await loadModel();
+    loadingBar.querySelector('.loading-bar-fill').style.width = '50%';
+
+    startBtn.textContent = 'Iniciando cámara...';
+    await startCamera();
+    loadingBar.querySelector('.loading-bar-fill').style.width = '100%';
+
+    setTimeout(() => {
+      startScreen.style.display = 'none';
+      statusPill.classList.add('active');
+      statusText.textContent = 'ACTIVO';
+      startDetection();
+    }, 400);
+
+  } catch (error) {
+    console.error('Error al iniciar:', error);
+    alert('Error al iniciar la captura: ' + error.message);
+    startBtn.disabled = false;
+    startBtn.textContent = 'Iniciar cámara';
+    loadingBar.classList.remove('active');
+  }
+}
+
+// ── MediaPipe ─────────────────────────────────────────────────────────────────
+async function loadModel() {
+  if (faceLandmarker) return;
+  const vision = await FilesetResolver.forVisionTasks(
+    'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.18/wasm'
+  );
+  faceLandmarker = await FaceLandmarker.createFromOptions(vision, {
+    baseOptions: {
+      modelAssetPath: 'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task',
+      delegate: 'GPU'
+    },
+    outputFaceBlendshapes: true,   // necesario para detectar apertura de ojos
+    runningMode: 'VIDEO',
+    numFaces: 1,
+    minFaceDetectionConfidence: 0.6,
+    minFacePresenceConfidence: 0.6,
+    minTrackingConfidence: 0.6,
+  });
+}
+
+async function startCamera() {
+  stream = await navigator.mediaDevices.getUserMedia({
+    video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: 'user' }
+  });
+  video.srcObject = stream;
+  await new Promise(resolve => { video.onloadedmetadata = resolve; });
+  canvas.width  = video.videoWidth;
+  canvas.height = video.videoHeight;
+}
+
+// ── Detección ─────────────────────────────────────────────────────────────────
+
+// Índices de blendshapes para apertura de ojos en MediaPipe FaceLandmarker
+// eyeBlinkLeft / eyeBlinkRight: 0 = ojo abierto, 1 = ojo cerrado
+const EYE_BLINK_LEFT  = 'eyeBlinkLeft';
+const EYE_BLINK_RIGHT = 'eyeBlinkRight';
+const EYE_OPEN_THRESHOLD = 0.35; // si blink > 0.35 el ojo está cerrado
+
+function eyesAreOpen(blendshapes) {
+  if (!blendshapes || blendshapes.length === 0) return false;
+  const shapes = blendshapes[0].categories;
+  const blinkL = shapes.find(s => s.categoryName === EYE_BLINK_LEFT)?.score ?? 0;
+  const blinkR = shapes.find(s => s.categoryName === EYE_BLINK_RIGHT)?.score ?? 0;
+  return blinkL < EYE_OPEN_THRESHOLD && blinkR < EYE_OPEN_THRESHOLD;
+}
+
+function startDetection() {
+  isDetecting = true;
+  detectLoop();
+}
+
+function detectLoop() {
+  if (!isDetecting || !faceLandmarker) return;
+
+  const results = faceLandmarker.detectForVideo(video, performance.now());
+
+  const hasFace = results.faceLandmarks && results.faceLandmarks.length > 0;
+  const openEyes = hasFace && eyesAreOpen(results.faceBlendshapes);
+  const ready = hasFace && openEyes;
+
+  if (ready !== faceReady) {
+    faceReady = ready;
+    updateUI(ready, hasFace);
+  }
+
+  requestAnimationFrame(detectLoop);
+}
+
+function updateUI(ready, hasFace) {
+  if (ready) {
+    faceOval.className = 'face-oval ready';
+    faceStatus.textContent = '✓ Rostro listo — presioná el botón';
+    faceStatus.className = 'face-status ready';
+    captureBtn.disabled = false;
+  } else if (hasFace) {
+    faceOval.className = 'face-oval';
+    faceStatus.textContent = 'Abrí los ojos para continuar';
+    faceStatus.className = 'face-status';
+    captureBtn.disabled = true;
+  } else {
+    faceOval.className = 'face-oval no-face';
+    faceStatus.textContent = 'Posicioná tu rostro';
+    faceStatus.className = 'face-status';
+    captureBtn.disabled = true;
+  }
+}
+
+// ── Captura ───────────────────────────────────────────────────────────────────
+captureBtn.addEventListener('click', async () => {
+  if (!faceReady) return;
+
+  captureBtn.disabled = true;
+  captureBtn.querySelector('.capture-btn-label').textContent = 'Guardando...';
+
+  try {
+    // Dibujar frame completo en canvas (espejado)
+    const ctx = canvas.getContext('2d');
+    ctx.save();
+    ctx.scale(-1, 1);
+    ctx.drawImage(video, -canvas.width, 0, canvas.width, canvas.height);
+    ctx.restore();
+
+    // Obtener landmarks actuales para recortar al rostro
+    const detResult = faceLandmarker.detectForVideo(video, performance.now());
+    const landmarks = detResult.faceLandmarks?.[0];
+
+    let dataUrl;
+
+    if (landmarks?.length) {
+      // Bounding box en coordenadas normalizadas (0-1)
+      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+      for (const pt of landmarks) {
+        if (pt.x < minX) minX = pt.x;
+        if (pt.y < minY) minY = pt.y;
+        if (pt.x > maxX) maxX = pt.x;
+        if (pt.y > maxY) maxY = pt.y;
+      }
+
+      // Espejamos X porque el canvas ya está espejado
+      const mMinX = 1 - maxX;
+      const mMaxX = 1 - minX;
+
+      const W = canvas.width;
+      const H = canvas.height;
+
+      // Padding del 35% para incluir frente y mentón
+      const pad = 0.35;
+      const fW = (mMaxX - mMinX) * W;
+      const fH = (maxY - minY) * H;
+      const pX = fW * pad;
+      const pY = fH * pad;
+
+      const cropX = Math.max(0, mMinX * W - pX);
+      const cropY = Math.max(0, minY * H - pY);
+      const cropW = Math.min(W - cropX, fW + pX * 2);
+      const cropH = Math.min(H - cropY, fH + pY * 2);
+
+      // Canvas cuadrado centrado
+      const size = Math.round(Math.max(cropW, cropH));
+      const cropCanvas = document.createElement('canvas');
+      cropCanvas.width  = size;
+      cropCanvas.height = size;
+      const cCtx = cropCanvas.getContext('2d');
+      cCtx.fillStyle = '#111';
+      cCtx.fillRect(0, 0, size, size);
+      cCtx.drawImage(
+        canvas,
+        cropX, cropY, cropW, cropH,
+        (size - cropW) / 2, (size - cropH) / 2, cropW, cropH
+      );
+      dataUrl = cropCanvas.toDataURL('image/jpeg', 0.88);
+    } else {
+      dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+    }
+
+    await savePhotoToDatabase(currentPersonName, dataUrl);
+
+    faceStatus.textContent = '✓ Foto guardada';
+    faceStatus.className = 'face-status ready';
+
+    // Breve flash de confirmación
+    setTimeout(() => {
+      faceReady = false;
+      updateUI(false, false);
+    }, 1200);
+
+    await loadRecentCaptures();
+
+  } catch (error) {
+    console.error('Error al capturar:', error);
+    faceStatus.textContent = 'Error al guardar — intentá de nuevo';
+    faceStatus.className = 'face-status';
+    captureBtn.disabled = false;
+  } finally {
+    captureBtn.querySelector('.capture-btn-label').textContent = 'Tomar foto';
+  }
+});
+
+// ── Base de datos ─────────────────────────────────────────────────────────────
+async function savePhotoToDatabase(personName, photoData) {
+  // Buscar o crear persona
+  const { data: existing, error: searchErr } = await supabase
+    .from('people')
+    .select('*')
+    .eq('name', personName);
+  if (searchErr) throw searchErr;
+
+  let person;
+  if (existing && existing.length > 0) {
+    person = existing[0];
+  } else {
+    const { data: newPerson, error: personErr } = await supabase
+      .from('people')
+      .insert({ name: personName });
+    if (personErr) throw personErr;
+    person = newPerson;
+  }
+
+  // Guardar foto
+  const { error: photoErr } = await supabase
+    .from('face_photos')
+    .insert({ person_id: person.id, photo_data: photoData });
+  if (photoErr) throw photoErr;
+}
+
+async function loadRecentCaptures() {
+  const { data: photos, error } = await supabase
+    .from('face_photos')
+    .order('captured_at', { ascending: false })
+    .limit(10);
+
+  if (error || !photos || photos.length === 0) {
+    capturesList.innerHTML = `
+      <div class="empty-state">
+        <span class="icon">◎</span>
+        Las fotos capturadas aparecerán aquí
+      </div>`;
+    return;
+  }
+
+  capturesList.innerHTML = '';
+  for (const photo of photos) {
+    const name = photo.person_name || 'Desconocido';
+    const timeStr = new Date(photo.captured_at).toLocaleTimeString('es-AR', {
+      hour: '2-digit', minute: '2-digit'
+    });
+    const item = document.createElement('div');
+    item.className = 'capture-item';
+    item.innerHTML = `
+      <img class="capture-thumb" src="${photo.photo_data}" alt="${name}" />
+      <div class="capture-info-item">
+        <div class="capture-name">${name}</div>
+        <div class="capture-time">${timeStr}</div>
+      </div>`;
+    capturesList.appendChild(item);
+  }
+}
+
+// Cargar capturas al iniciar
+document.addEventListener('DOMContentLoaded', () => loadRecentCaptures());
+
+// Limpiar cámara al salir
+window.addEventListener('beforeunload', () => {
+  if (stream) stream.getTracks().forEach(t => t.stop());
+});
+</script>

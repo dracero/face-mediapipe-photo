@@ -6,30 +6,49 @@ import Layout from '../layouts/Layout.astro';
   <header>
     <a href="/" class="back-link">← Captura</a>
     <div class="logo">FACE<span>CAPTURE</span></div>
-    <div class="page-label">COMPARAR</div>
+    <div class="header-right">
+      <button class="clear-btn" id="clear-db-btn" title="Borrar base de datos">🗑 Borrar DB</button>
+      <div class="page-label">COMPARAR</div>
+    </div>
   </header>
 
   <main>
-    <div class="upload-panel">
-      <div class="panel-title">Imagen a comparar</div>
-      <div class="drop-zone" id="drop-zone">
-        <div class="drop-content" id="drop-content">
-          <span class="drop-icon">◎</span>
-          <span class="drop-text">Arrastrá una imagen o hacé clic para seleccionar</span>
+    <!-- Panel izquierdo: webcam -->
+    <div class="cam-panel">
+      <div class="panel-title">Tu rostro</div>
+
+      <div class="viewport" id="viewport">
+        <video id="video" autoplay muted playsinline></video>
+        <canvas id="snap-canvas" style="display:none"></canvas>
+
+        <!-- Óvalo guía -->
+        <div class="face-guide">
+          <div class="face-oval" id="face-oval">
+            <div class="bracket tl"></div>
+            <div class="bracket tr"></div>
+            <div class="bracket bl"></div>
+            <div class="bracket br"></div>
+          </div>
+          <div class="face-status" id="face-status">Iniciando cámara…</div>
         </div>
-        <img id="preview-img" class="preview-img" style="display:none" alt="Preview" />
-        <input type="file" id="file-input" accept="image/*" style="display:none" />
+
+        <!-- Botón comparar flotante -->
+        <button class="compare-btn" id="compare-btn" disabled>
+          <span class="compare-btn-icon">⟳</span>
+          <span class="compare-btn-label">Comparar</span>
+        </button>
       </div>
-      <button class="compare-btn" id="compare-btn" disabled>Comparar rostro</button>
+
       <div class="result-status" id="result-status"></div>
     </div>
 
+    <!-- Panel derecho: resultados -->
     <div class="results-panel">
       <div class="panel-title">Resultados</div>
       <div class="results-list" id="results-list">
         <div class="empty-state">
           <span class="icon">◎</span>
-          Subí una imagen y compará<br />con las fotos guardadas
+          Mirá a la cámara y presioná<br /><strong>Comparar</strong> para buscar coincidencias
         </div>
       </div>
     </div>
@@ -37,6 +56,17 @@ import Layout from '../layouts/Layout.astro';
 </Layout>
 
 <style>
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    font-family: 'DM Mono', monospace;
+    background: #0a0a0a;
+    color: #e8e8e8;
+    overflow: hidden;
+  }
+
+  /* ── Header ────────────────────────────────────────────────────────── */
   header {
     position: fixed;
     top: 0; left: 0; right: 0;
@@ -78,29 +108,38 @@ import Layout from '../layouts/Layout.astro';
     border-radius: 100px;
   }
 
+  .header-right { display: flex; align-items: center; gap: 12px; }
+
+  .clear-btn {
+    padding: 5px 12px;
+    background: transparent;
+    border: 1px solid #2a2a2a;
+    border-radius: 100px;
+    color: #666;
+    font-family: 'DM Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 0.06em;
+    cursor: pointer;
+    transition: border-color 0.2s, color 0.2s;
+  }
+  .clear-btn:hover { border-color: #ef4444; color: #ef4444; }
+
+  /* ── Layout ─────────────────────────────────────────────────────────── */
   main {
     display: flex;
     height: 100vh;
     padding-top: 56px;
-    gap: 0;
   }
 
-  .upload-panel {
+  /* ── Cam panel ──────────────────────────────────────────────────────── */
+  .cam-panel {
     width: 420px;
     min-width: 340px;
-    padding: 32px 24px;
+    padding: 24px;
     border-right: 1px solid #1a1a1a;
     display: flex;
     flex-direction: column;
-    gap: 20px;
-    overflow-y: auto;
-  }
-
-  .results-panel {
-    flex: 1;
-    padding: 32px 24px;
-    display: flex;
-    flex-direction: column;
+    gap: 16px;
     overflow: hidden;
   }
 
@@ -109,80 +148,139 @@ import Layout from '../layouts/Layout.astro';
     font-weight: 700;
     font-size: 15px;
     letter-spacing: 0.04em;
-    margin-bottom: 4px;
+    flex-shrink: 0;
   }
 
-  /* ── Drop zone ──────────────────────────────────────────────────────── */
-  .drop-zone {
+  .viewport {
     position: relative;
-    border: 2px dashed #2a2a2a;
-    border-radius: 12px;
-    min-height: 240px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    cursor: pointer;
-    transition: border-color 0.2s, background 0.2s;
+    flex: 1;
+    border-radius: 14px;
     overflow: hidden;
+    background: #000;
+    min-height: 0;
   }
-  .drop-zone:hover { border-color: #444; background: #111; }
-  .drop-zone.dragover { border-color: #00ff88; background: rgba(0,255,136,0.04); }
-  .drop-zone.has-image { border-style: solid; border-color: #2a2a2a; }
 
-  .drop-content {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 12px;
-    color: #444;
-    font-size: 12px;
-    text-align: center;
-    line-height: 1.6;
-  }
-  .drop-icon { font-size: 32px; color: #333; }
-  .drop-zone.has-image .drop-content { display: none; }
-
-  .preview-img {
+  #video {
     width: 100%;
     height: 100%;
-    object-fit: contain;
+    object-fit: cover;
+    transform: scaleX(-1);
     display: block;
   }
 
+  /* ── Face guide ─────────────────────────────────────────────────────── */
+  .face-guide {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 16px;
+    pointer-events: none;
+  }
+
+  .face-oval {
+    position: relative;
+    width: 180px;
+    height: 220px;
+    border: 2px solid rgba(255,255,255,0.2);
+    border-radius: 50%;
+    transition: border-color 0.3s, box-shadow 0.3s;
+  }
+  .face-oval.ready {
+    border-color: #00ff88;
+    box-shadow: 0 0 20px rgba(0,255,136,0.3);
+  }
+
+  .bracket {
+    position: absolute;
+    width: 16px; height: 16px;
+    border: 2px solid #00ff88;
+  }
+  .bracket.tl { top: -2px; left: -2px; border-right: none; border-bottom: none; }
+  .bracket.tr { top: -2px; right: -2px; border-left: none; border-bottom: none; }
+  .bracket.bl { bottom: -2px; left: -2px; border-right: none; border-top: none; }
+  .bracket.br { bottom: -2px; right: -2px; border-left: none; border-top: none; }
+
+  .face-status {
+    font-size: 12px;
+    letter-spacing: 0.06em;
+    color: #888;
+    text-align: center;
+    padding: 8px 16px;
+    background: rgba(0,0,0,0.65);
+    border-radius: 100px;
+    backdrop-filter: blur(8px);
+    transition: color 0.3s;
+  }
+  .face-status.ready { color: #00ff88; }
+
   /* ── Compare button ─────────────────────────────────────────────────── */
   .compare-btn {
-    padding: 14px 24px;
+    position: absolute;
+    bottom: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 12px 28px;
     background: #00ff88;
     color: #000;
     font-family: 'DM Mono', monospace;
-    font-weight: 500;
+    font-weight: 600;
     font-size: 13px;
     letter-spacing: 0.08em;
     border: none;
     border-radius: 100px;
     cursor: pointer;
-    transition: opacity 0.2s, transform 0.2s;
+    white-space: nowrap;
+    transition: opacity 0.2s, transform 0.2s, box-shadow 0.2s;
+    box-shadow: 0 4px 20px rgba(0,255,136,0.3);
   }
-  .compare-btn:hover:not(:disabled) { opacity: 0.85; transform: scale(1.02); }
-  .compare-btn:disabled { opacity: 0.3; cursor: not-allowed; }
-  .compare-btn.loading { background: #1a1a1a; color: #00ff88; border: 1px solid #2a2a2a; }
+  .compare-btn:hover:not(:disabled) {
+    opacity: 0.9;
+    transform: translateX(-50%) scale(1.04);
+  }
+  .compare-btn:disabled {
+    background: #1a1a1a;
+    color: #444;
+    box-shadow: none;
+    cursor: not-allowed;
+  }
+  .compare-btn.loading {
+    background: #111;
+    color: #00ff88;
+    border: 1px solid #2a2a2a;
+  }
+  .compare-btn-icon { font-size: 16px; }
 
   .result-status {
     font-size: 11px;
     letter-spacing: 0.08em;
     color: #555;
     text-align: center;
-    min-height: 20px;
+    min-height: 18px;
+    flex-shrink: 0;
   }
 
-  /* ── Results ─────────────────────────────────────────────────────────── */
+  /* ── Results panel ──────────────────────────────────────────────────── */
+  .results-panel {
+    flex: 1;
+    padding: 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    overflow: hidden;
+  }
+
   .results-list {
     flex: 1;
     overflow-y: auto;
     display: flex;
     flex-direction: column;
     gap: 12px;
-    padding-top: 8px;
     scrollbar-width: thin;
     scrollbar-color: #2a2a2a transparent;
   }
@@ -197,10 +295,12 @@ import Layout from '../layouts/Layout.astro';
     color: #444;
     font-size: 12px;
     text-align: center;
-    line-height: 1.6;
+    line-height: 1.8;
   }
-  .empty-state .icon { font-size: 28px; color: #333; }
+  .empty-state .icon { font-size: 32px; color: #333; }
+  .empty-state strong { color: #666; }
 
+  /* ── Result cards ───────────────────────────────────────────────────── */
   .result-card {
     display: flex;
     gap: 16px;
@@ -209,13 +309,14 @@ import Layout from '../layouts/Layout.astro';
     border: 1px solid #1f1f1f;
     border-radius: 12px;
     transition: border-color 0.2s;
+    animation: fadeIn 0.25s ease;
   }
-  .result-card.match { border-color: rgba(0,255,136,0.4); }
-  .result-card.no-match { border-color: rgba(239,68,68,0.3); }
+  @keyframes fadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+  .result-card.match   { border-color: rgba(0,255,136,0.4); }
+  .result-card.no-match { border-color: rgba(239,68,68,0.25); }
 
   .result-thumb {
-    width: 80px;
-    height: 60px;
+    width: 80px; height: 60px;
     border-radius: 8px;
     object-fit: cover;
     flex-shrink: 0;
@@ -234,6 +335,9 @@ import Layout from '../layouts/Layout.astro';
     font-weight: 700;
     font-size: 14px;
     color: #e8e8e8;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 
   .result-score {
@@ -252,11 +356,11 @@ import Layout from '../layouts/Layout.astro';
   .score-bar-fill {
     height: 100%;
     border-radius: 2px;
-    transition: width 0.4s;
+    transition: width 0.5s ease;
   }
-  .score-bar-fill.high { background: #00ff88; }
+  .score-bar-fill.high   { background: #00ff88; }
   .score-bar-fill.medium { background: #f59e0b; }
-  .score-bar-fill.low { background: #ef4444; }
+  .score-bar-fill.low    { background: #ef4444; }
 
   .score-val {
     font-size: 12px;
@@ -264,9 +368,9 @@ import Layout from '../layouts/Layout.astro';
     min-width: 40px;
     text-align: right;
   }
-  .score-val.high { color: #00ff88; }
+  .score-val.high   { color: #00ff88; }
   .score-val.medium { color: #f59e0b; }
-  .score-val.low { color: #ef4444; }
+  .score-val.low    { color: #ef4444; }
 
   .result-label {
     font-size: 10px;
@@ -275,11 +379,11 @@ import Layout from '../layouts/Layout.astro';
   }
 
   .no-face-msg {
-    padding: 24px;
+    padding: 20px;
     text-align: center;
     color: #ef4444;
     font-size: 12px;
-    letter-spacing: 0.06em;
+    letter-spacing: 0.05em;
     border: 1px solid rgba(239,68,68,0.2);
     border-radius: 12px;
     background: rgba(239,68,68,0.05);
@@ -287,8 +391,9 @@ import Layout from '../layouts/Layout.astro';
 
   /* ── Responsive ──────────────────────────────────────────────────────── */
   @media (max-width: 768px) {
-    main { flex-direction: column; overflow-y: auto; }
-    .upload-panel { width: 100%; min-width: unset; border-right: none; border-bottom: 1px solid #1a1a1a; }
+    body { overflow: auto; }
+    main { flex-direction: column; height: auto; overflow: auto; }
+    .cam-panel { width: 100%; min-width: unset; border-right: none; border-bottom: 1px solid #1a1a1a; height: 60vh; }
     .results-panel { min-height: 50vh; }
   }
 </style>
@@ -298,52 +403,53 @@ import {
   FaceLandmarker,
   FilesetResolver,
 } from 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.18/+esm';
-import { supabase } from '../lib/supabase';
+import { supabase, clearDatabase } from '/lib/database.js';
 
-const dropZone    = document.getElementById('drop-zone');
-const fileInput   = document.getElementById('file-input');
-const previewImg  = document.getElementById('preview-img');
+// ── Elements ──────────────────────────────────────────────────────────────────
+const video       = document.getElementById('video');
+const snapCanvas  = document.getElementById('snap-canvas');
+const faceOval    = document.getElementById('face-oval');
+const faceStatus  = document.getElementById('face-status');
 const compareBtn  = document.getElementById('compare-btn');
 const resultsList = document.getElementById('results-list');
 const resultStatus = document.getElementById('result-status');
 
+// ── State ─────────────────────────────────────────────────────────────────────
 let faceLandmarker = null;
-let uploadedDataUrl = null;
+let stream         = null;
+let faceReady      = false;
+let isDetecting    = false;
 
-// ── File handling ──────────────────────────────────────────────────────────────
-dropZone.addEventListener('click', () => fileInput.click());
-
-dropZone.addEventListener('dragover', (e) => {
-  e.preventDefault();
-  dropZone.classList.add('dragover');
-});
-dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
-dropZone.addEventListener('drop', (e) => {
-  e.preventDefault();
-  dropZone.classList.remove('dragover');
-  const file = e.dataTransfer.files[0];
-  if (file && file.type.startsWith('image/')) handleFile(file);
-});
-
-fileInput.addEventListener('change', () => {
-  if (fileInput.files[0]) handleFile(fileInput.files[0]);
-});
-
-function handleFile(file) {
-  const reader = new FileReader();
-  reader.onload = (e) => {
-    uploadedDataUrl = e.target.result;
-    previewImg.src = uploadedDataUrl;
-    previewImg.style.display = 'block';
-    dropZone.classList.add('has-image');
-    compareBtn.disabled = false;
-  };
-  reader.readAsDataURL(file);
+// ── Boot ──────────────────────────────────────────────────────────────────────
+async function boot() {
+  try {
+    faceStatus.textContent = 'Cargando modelo…';
+    await startCamera();
+    await loadModel();
+    faceStatus.textContent = 'Posicioná tu rostro';
+    isDetecting = true;
+    detectLoop();
+  } catch (err) {
+    console.error('Error al iniciar:', err);
+    faceStatus.textContent = 'Error: ' + err.message;
+  }
 }
 
-// ── Load model ────────────────────────────────────────────────────────────────
+boot();
+
+// ── Cámara ────────────────────────────────────────────────────────────────────
+async function startCamera() {
+  stream = await navigator.mediaDevices.getUserMedia({
+    video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: 'user' }
+  });
+  video.srcObject = stream;
+  await new Promise(r => { video.onloadedmetadata = r; });
+  snapCanvas.width  = video.videoWidth;
+  snapCanvas.height = video.videoHeight;
+}
+
+// ── MediaPipe ─────────────────────────────────────────────────────────────────
 async function loadModel() {
-  if (faceLandmarker) return;
   const vision = await FilesetResolver.forVisionTasks(
     'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.18/wasm'
   );
@@ -352,158 +458,231 @@ async function loadModel() {
       modelAssetPath: 'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task',
       delegate: 'GPU'
     },
-    runningMode: 'IMAGE',
+    outputFaceBlendshapes: true,
+    runningMode: 'VIDEO',
     numFaces: 1,
-    minFaceDetectionConfidence: 0.5,
-    minFacePresenceConfidence: 0.5,
-    minTrackingConfidence: 0.5,
+    minFaceDetectionConfidence: 0.6,
+    minFacePresenceConfidence: 0.6,
+    minTrackingConfidence: 0.6,
   });
 }
 
-// ── Compare ───────────────────────────────────────────────────────────────────
+// ── Detección continua ────────────────────────────────────────────────────────
+const EYE_BLINK_THRESHOLD = 0.35;
+
+function eyesOpen(blendshapes) {
+  if (!blendshapes?.length) return false;
+  const cats = blendshapes[0].categories;
+  const blinkL = cats.find(c => c.categoryName === 'eyeBlinkLeft')?.score  ?? 1;
+  const blinkR = cats.find(c => c.categoryName === 'eyeBlinkRight')?.score ?? 1;
+  return blinkL < EYE_BLINK_THRESHOLD && blinkR < EYE_BLINK_THRESHOLD;
+}
+
+function detectLoop() {
+  if (!isDetecting || !faceLandmarker) return;
+
+  const res  = faceLandmarker.detectForVideo(video, performance.now());
+  const face = res.faceLandmarks?.length > 0;
+  const open = face && eyesOpen(res.faceBlendshapes);
+  const ready = face && open;
+
+  if (ready !== faceReady) {
+    faceReady = ready;
+    if (ready) {
+      faceOval.classList.add('ready');
+      faceStatus.textContent = '✓ Listo — presioná Comparar';
+      faceStatus.className = 'face-status ready';
+      compareBtn.disabled = false;
+    } else if (face) {
+      faceOval.classList.remove('ready');
+      faceStatus.textContent = 'Abrí los ojos';
+      faceStatus.className = 'face-status';
+      compareBtn.disabled = true;
+    } else {
+      faceOval.classList.remove('ready');
+      faceStatus.textContent = 'Posicioná tu rostro';
+      faceStatus.className = 'face-status';
+      compareBtn.disabled = true;
+    }
+  }
+
+  requestAnimationFrame(detectLoop);
+}
+
+// ── Comparar ──────────────────────────────────────────────────────────────────
 compareBtn.addEventListener('click', async () => {
-  if (!uploadedDataUrl) return;
+  if (!faceReady) return;
 
   compareBtn.disabled = true;
-  compareBtn.textContent = 'Cargando modelo…';
   compareBtn.classList.add('loading');
+  compareBtn.querySelector('.compare-btn-label').textContent = 'Analizando…';
   resultStatus.textContent = '';
 
   try {
-    await loadModel();
+    // 1. Capturar frame actual de la webcam
+    const ctx = snapCanvas.getContext('2d');
+    ctx.save();
+    ctx.scale(-1, 1);
+    ctx.drawImage(video, -snapCanvas.width, 0, snapCanvas.width, snapCanvas.height);
+    ctx.restore();
 
-    compareBtn.textContent = 'Analizando rostro…';
+    // 2. Detectar landmarks en el frame capturado
+    //    Necesitamos modo IMAGE para una imagen estática
+    const visionImg = await FilesetResolver.forVisionTasks(
+      'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.18/wasm'
+    );
+    const imgLandmarker = await FaceLandmarker.createFromOptions(visionImg, {
+      baseOptions: {
+        modelAssetPath: 'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task',
+        delegate: 'GPU'
+      },
+      runningMode: 'IMAGE',
+      numFaces: 1,
+      minFaceDetectionConfidence: 0.5,
+    });
 
-    // Detect face in uploaded image
-    const img = new Image();
-    img.src = uploadedDataUrl;
-    await new Promise(r => { img.onload = r; });
+    const snapImg = new Image();
+    snapImg.src = snapCanvas.toDataURL('image/jpeg', 0.9);
+    await new Promise(r => { snapImg.onload = r; });
 
-    const result = faceLandmarker.detect(img);
+    const snapResult = imgLandmarker.detect(snapImg);
+    imgLandmarker.close();
 
-    if (!result.faceLandmarks || result.faceLandmarks.length === 0) {
-      resultsList.innerHTML = '<div class="no-face-msg">No se detectó ningún rostro en la imagen. Probá con otra foto.</div>';
-      compareBtn.textContent = 'Comparar rostro';
-      compareBtn.disabled = false;
-      compareBtn.classList.remove('loading');
+    if (!snapResult.faceLandmarks?.length) {
+      resultsList.innerHTML = '<div class="no-face-msg">No se detectó rostro en el frame. Intentá de nuevo.</div>';
       return;
     }
 
-    const uploadedLandmarks = result.faceLandmarks[0];
+    const liveLandmarks = snapResult.faceLandmarks[0];
 
-    compareBtn.textContent = 'Buscando coincidencias…';
-
-    // Fetch all people and their photos from DB
-    const { data: people, error: peopleErr } = await supabase
-      .from('people')
-      .select('id, name, created_at');
-
-    if (peopleErr) throw peopleErr;
-
-    const { data: photos, error: photosErr } = await supabase
+    // 3. Cargar fotos de la base de datos
+    const { data: photos, error } = await supabase
       .from('face_photos')
       .select('id, person_id, photo_data, captured_at');
 
-    if (photosErr) throw photosErr;
+    if (error) throw error;
 
-    if (!photos || photos.length === 0) {
-      resultsList.innerHTML = '<div class="no-face-msg">No hay fotos guardadas en la base de datos. Capturá fotos primero.</div>';
-      compareBtn.textContent = 'Comparar rostro';
-      compareBtn.disabled = false;
-      compareBtn.classList.remove('loading');
+    if (!photos?.length) {
+      resultsList.innerHTML = '<div class="no-face-msg">No hay fotos guardadas. Capturá fotos primero.</div>';
       return;
     }
 
-    // Compare uploaded face against each stored photo
+    // 4. Comparar contra cada foto guardada
+    // Crear un landmarker IMAGE reutilizable para las fotos de la DB
+    const visionDb = await FilesetResolver.forVisionTasks(
+      'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.18/wasm'
+    );
+    const dbLandmarker = await FaceLandmarker.createFromOptions(visionDb, {
+      baseOptions: {
+        modelAssetPath: 'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task',
+        delegate: 'GPU'
+      },
+      runningMode: 'IMAGE',
+      numFaces: 1,
+      minFaceDetectionConfidence: 0.5,
+    });
+
     const comparisons = [];
 
     for (const photo of photos) {
-      const dbImg = new Image();
-      dbImg.src = photo.photo_data;
-      await new Promise(r => { dbImg.onload = r; dbImg.onerror = r; });
+      const img = new Image();
+      img.src = photo.photo_data;
+      await new Promise(r => { img.onload = r; img.onerror = r; });
 
-      const dbResult = faceLandmarker.detect(dbImg);
-      if (!dbResult.faceLandmarks || dbResult.faceLandmarks.length === 0) continue;
+      const res = dbLandmarker.detect(img);
+      if (!res.faceLandmarks?.length) continue;
 
-      const dbLandmarks = dbResult.faceLandmarks[0];
-      const similarity = computeSimilarity(uploadedLandmarks, dbLandmarks);
-
-      const person = people?.find(p => p.id === photo.person_id);
+      const sim = computeSimilarity(liveLandmarks, res.faceLandmarks[0]);
       comparisons.push({
-        personName: person?.name || 'Desconocido',
-        photoData: photo.photo_data,
-        similarity,
-        photoId: photo.id,
+        personName: photo.person_name || 'Desconocido',
+        photoData:  photo.photo_data,
+        similarity: sim,
       });
     }
 
-    // Sort by similarity descending
-    comparisons.sort((a, b) => b.similarity - a.similarity);
+    dbLandmarker.close();
 
-    // Render results
+    comparisons.sort((a, b) => b.similarity - a.similarity);
     renderResults(comparisons);
 
-  } catch (e) {
-    console.error(e);
-    resultStatus.textContent = 'Error: ' + (e instanceof Error ? e.message : String(e));
+    const best = comparisons[0];
+    if (best) {
+      if (best.similarity >= 70) {
+        resultStatus.textContent = `Mejor coincidencia: ${best.personName} (${best.similarity}%)`;
+        resultStatus.style.color = '#00ff88';
+      } else {
+        resultStatus.textContent = 'No se encontró una coincidencia significativa';
+        resultStatus.style.color = '#f59e0b';
+      }
+    }
+
+  } catch (err) {
+    console.error(err);
+    resultStatus.textContent = 'Error: ' + err.message;
+    resultStatus.style.color = '#ef4444';
   } finally {
-    compareBtn.textContent = 'Comparar rostro';
-    compareBtn.disabled = false;
     compareBtn.classList.remove('loading');
+    compareBtn.querySelector('.compare-btn-label').textContent = 'Comparar';
+    // Re-habilitar solo si el rostro sigue listo
+    compareBtn.disabled = !faceReady;
   }
 });
 
+// ── Similitud ─────────────────────────────────────────────────────────────────
 function computeSimilarity(landmarksA, landmarksB) {
-  let totalDist = 0;
-  const count = Math.min(landmarksA.length, landmarksB.length);
-
-  for (let i = 0; i < count; i++) {
+  let total = 0;
+  const n = Math.min(landmarksA.length, landmarksB.length);
+  for (let i = 0; i < n; i++) {
     const dx = landmarksA[i].x - landmarksB[i].x;
     const dy = landmarksA[i].y - landmarksB[i].y;
-    const dz = (landmarksA[i].z || 0) - (landmarksB[i].z || 0);
-    totalDist += Math.sqrt(dx * dx + dy * dy + dz * dz);
+    const dz = (landmarksA[i].z ?? 0) - (landmarksB[i].z ?? 0);
+    total += Math.sqrt(dx*dx + dy*dy + dz*dz);
   }
-
-  const avgDist = totalDist / count;
-  const score = Math.max(0, Math.min(100, (1 - avgDist / 0.15) * 100));
-  return Math.round(score);
+  const avg = total / n;
+  return Math.round(Math.max(0, Math.min(100, (1 - avg / 0.15) * 100)));
 }
 
+// ── Render ────────────────────────────────────────────────────────────────────
 function renderResults(comparisons) {
-  if (comparisons.length === 0) {
+  if (!comparisons.length) {
     resultsList.innerHTML = '<div class="no-face-msg">No se pudieron extraer rostros de las fotos guardadas.</div>';
     return;
   }
 
   resultsList.innerHTML = '';
-
-  for (const comp of comparisons) {
-    const level = comp.similarity >= 70 ? 'high' : comp.similarity >= 40 ? 'medium' : 'low';
-    const matchClass = comp.similarity >= 70 ? 'match' : 'no-match';
-
+  for (const c of comparisons) {
+    const level = c.similarity >= 70 ? 'high' : c.similarity >= 40 ? 'medium' : 'low';
     const card = document.createElement('div');
-    card.className = `result-card ${matchClass}`;
+    card.className = `result-card ${c.similarity >= 70 ? 'match' : 'no-match'}`;
     card.innerHTML = `
-      <img class="result-thumb" src="${comp.photoData}" alt="${comp.personName}" />
+      <img class="result-thumb" src="${c.photoData}" alt="${c.personName}" />
       <div class="result-info">
-        <div class="result-name">${comp.personName}</div>
+        <div class="result-name">${c.personName}</div>
         <div class="result-score">
-          <div class="score-bar"><div class="score-bar-fill ${level}" style="width:${comp.similarity}%"></div></div>
-          <span class="score-val ${level}">${comp.similarity}%</span>
+          <div class="score-bar"><div class="score-bar-fill ${level}" style="width:${c.similarity}%"></div></div>
+          <span class="score-val ${level}">${c.similarity}%</span>
         </div>
-        <div class="result-label">${comp.similarity >= 70 ? 'COINCIDENCIA ALTA' : comp.similarity >= 40 ? 'SIMILITUD PARCIAL' : 'BAJA SIMILITUD'}</div>
-      </div>
-    `;
+        <div class="result-label">${c.similarity >= 70 ? 'COINCIDENCIA ALTA' : c.similarity >= 40 ? 'SIMILITUD PARCIAL' : 'BAJA SIMILITUD'}</div>
+      </div>`;
     resultsList.appendChild(card);
   }
-
-  const best = comparisons[0];
-  if (best.similarity >= 70) {
-    resultStatus.textContent = `Mejor coincidencia: ${best.personName} (${best.similarity}%)`;
-    resultStatus.style.color = '#00ff88';
-  } else {
-    resultStatus.textContent = 'No se encontró una coincidencia significativa';
-    resultStatus.style.color = '#f59e0b';
-  }
 }
+
+// ── Cleanup ───────────────────────────────────────────────────────────────────
+window.addEventListener('beforeunload', () => {
+  if (stream) stream.getTracks().forEach(t => t.stop());
+});
+
+// ── Borrar DB ─────────────────────────────────────────────────────────────────
+document.getElementById('clear-db-btn').addEventListener('click', async () => {
+  if (!confirm('¿Borrar toda la base de datos? Esta acción no se puede deshacer.')) return;
+  await clearDatabase();
+  resultsList.innerHTML = `
+    <div class="empty-state">
+      <span class="icon">◎</span>
+      Base de datos borrada.<br />Capturá fotos nuevamente.
+    </div>`;
+  resultStatus.textContent = '';
+  alert('Base de datos borrada.');
+});
 </script>
