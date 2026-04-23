@@ -1,0 +1,509 @@
+---
+import Layout from '../layouts/Layout.astro';
+---
+
+<Layout title="FaceCapture — Comparar">
+  <header>
+    <a href="/" class="back-link">← Captura</a>
+    <div class="logo">FACE<span>CAPTURE</span></div>
+    <div class="page-label">COMPARAR</div>
+  </header>
+
+  <main>
+    <div class="upload-panel">
+      <div class="panel-title">Imagen a comparar</div>
+      <div class="drop-zone" id="drop-zone">
+        <div class="drop-content" id="drop-content">
+          <span class="drop-icon">◎</span>
+          <span class="drop-text">Arrastrá una imagen o hacé clic para seleccionar</span>
+        </div>
+        <img id="preview-img" class="preview-img" style="display:none" alt="Preview" />
+        <input type="file" id="file-input" accept="image/*" style="display:none" />
+      </div>
+      <button class="compare-btn" id="compare-btn" disabled>Comparar rostro</button>
+      <div class="result-status" id="result-status"></div>
+    </div>
+
+    <div class="results-panel">
+      <div class="panel-title">Resultados</div>
+      <div class="results-list" id="results-list">
+        <div class="empty-state">
+          <span class="icon">◎</span>
+          Subí una imagen y compará<br />con las fotos guardadas
+        </div>
+      </div>
+    </div>
+  </main>
+</Layout>
+
+<style>
+  header {
+    position: fixed;
+    top: 0; left: 0; right: 0;
+    height: 56px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 24px;
+    background: rgba(10,10,10,0.85);
+    backdrop-filter: blur(12px);
+    border-bottom: 1px solid #1f1f1f;
+    z-index: 10;
+  }
+
+  .back-link {
+    color: #888;
+    font-size: 12px;
+    letter-spacing: 0.06em;
+    text-decoration: none;
+    transition: color 0.2s;
+  }
+  .back-link:hover { color: #00ff88; }
+
+  .logo {
+    font-family: 'Syne', sans-serif;
+    font-weight: 800;
+    font-size: 18px;
+    letter-spacing: 0.08em;
+    color: #fff;
+  }
+  .logo span { color: #00ff88; }
+
+  .page-label {
+    font-size: 10px;
+    letter-spacing: 0.14em;
+    color: #555;
+    padding: 4px 12px;
+    border: 1px solid #2a2a2a;
+    border-radius: 100px;
+  }
+
+  main {
+    display: flex;
+    height: 100vh;
+    padding-top: 56px;
+    gap: 0;
+  }
+
+  .upload-panel {
+    width: 420px;
+    min-width: 340px;
+    padding: 32px 24px;
+    border-right: 1px solid #1a1a1a;
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+    overflow-y: auto;
+  }
+
+  .results-panel {
+    flex: 1;
+    padding: 32px 24px;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  .panel-title {
+    font-family: 'Syne', sans-serif;
+    font-weight: 700;
+    font-size: 15px;
+    letter-spacing: 0.04em;
+    margin-bottom: 4px;
+  }
+
+  /* ── Drop zone ──────────────────────────────────────────────────────── */
+  .drop-zone {
+    position: relative;
+    border: 2px dashed #2a2a2a;
+    border-radius: 12px;
+    min-height: 240px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: border-color 0.2s, background 0.2s;
+    overflow: hidden;
+  }
+  .drop-zone:hover { border-color: #444; background: #111; }
+  .drop-zone.dragover { border-color: #00ff88; background: rgba(0,255,136,0.04); }
+  .drop-zone.has-image { border-style: solid; border-color: #2a2a2a; }
+
+  .drop-content {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 12px;
+    color: #444;
+    font-size: 12px;
+    text-align: center;
+    line-height: 1.6;
+  }
+  .drop-icon { font-size: 32px; color: #333; }
+  .drop-zone.has-image .drop-content { display: none; }
+
+  .preview-img {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    display: block;
+  }
+
+  /* ── Compare button ─────────────────────────────────────────────────── */
+  .compare-btn {
+    padding: 14px 24px;
+    background: #00ff88;
+    color: #000;
+    font-family: 'DM Mono', monospace;
+    font-weight: 500;
+    font-size: 13px;
+    letter-spacing: 0.08em;
+    border: none;
+    border-radius: 100px;
+    cursor: pointer;
+    transition: opacity 0.2s, transform 0.2s;
+  }
+  .compare-btn:hover:not(:disabled) { opacity: 0.85; transform: scale(1.02); }
+  .compare-btn:disabled { opacity: 0.3; cursor: not-allowed; }
+  .compare-btn.loading { background: #1a1a1a; color: #00ff88; border: 1px solid #2a2a2a; }
+
+  .result-status {
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    color: #555;
+    text-align: center;
+    min-height: 20px;
+  }
+
+  /* ── Results ─────────────────────────────────────────────────────────── */
+  .results-list {
+    flex: 1;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    padding-top: 8px;
+    scrollbar-width: thin;
+    scrollbar-color: #2a2a2a transparent;
+  }
+
+  .empty-state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    height: 100%;
+    color: #444;
+    font-size: 12px;
+    text-align: center;
+    line-height: 1.6;
+  }
+  .empty-state .icon { font-size: 28px; color: #333; }
+
+  .result-card {
+    display: flex;
+    gap: 16px;
+    padding: 16px;
+    background: #111;
+    border: 1px solid #1f1f1f;
+    border-radius: 12px;
+    transition: border-color 0.2s;
+  }
+  .result-card.match { border-color: rgba(0,255,136,0.4); }
+  .result-card.no-match { border-color: rgba(239,68,68,0.3); }
+
+  .result-thumb {
+    width: 80px;
+    height: 60px;
+    border-radius: 8px;
+    object-fit: cover;
+    flex-shrink: 0;
+  }
+
+  .result-info {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    flex: 1;
+    min-width: 0;
+  }
+
+  .result-name {
+    font-family: 'Syne', sans-serif;
+    font-weight: 700;
+    font-size: 14px;
+    color: #e8e8e8;
+  }
+
+  .result-score {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .score-bar {
+    flex: 1;
+    height: 4px;
+    background: #1f1f1f;
+    border-radius: 2px;
+    overflow: hidden;
+  }
+  .score-bar-fill {
+    height: 100%;
+    border-radius: 2px;
+    transition: width 0.4s;
+  }
+  .score-bar-fill.high { background: #00ff88; }
+  .score-bar-fill.medium { background: #f59e0b; }
+  .score-bar-fill.low { background: #ef4444; }
+
+  .score-val {
+    font-size: 12px;
+    font-weight: 500;
+    min-width: 40px;
+    text-align: right;
+  }
+  .score-val.high { color: #00ff88; }
+  .score-val.medium { color: #f59e0b; }
+  .score-val.low { color: #ef4444; }
+
+  .result-label {
+    font-size: 10px;
+    letter-spacing: 0.1em;
+    color: #555;
+  }
+
+  .no-face-msg {
+    padding: 24px;
+    text-align: center;
+    color: #ef4444;
+    font-size: 12px;
+    letter-spacing: 0.06em;
+    border: 1px solid rgba(239,68,68,0.2);
+    border-radius: 12px;
+    background: rgba(239,68,68,0.05);
+  }
+
+  /* ── Responsive ──────────────────────────────────────────────────────── */
+  @media (max-width: 768px) {
+    main { flex-direction: column; overflow-y: auto; }
+    .upload-panel { width: 100%; min-width: unset; border-right: none; border-bottom: 1px solid #1a1a1a; }
+    .results-panel { min-height: 50vh; }
+  }
+</style>
+
+<script type="module">
+import {
+  FaceLandmarker,
+  FilesetResolver,
+} from 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.18/+esm';
+import { supabase } from '../lib/supabase';
+
+const dropZone    = document.getElementById('drop-zone');
+const fileInput   = document.getElementById('file-input');
+const previewImg  = document.getElementById('preview-img');
+const compareBtn  = document.getElementById('compare-btn');
+const resultsList = document.getElementById('results-list');
+const resultStatus = document.getElementById('result-status');
+
+let faceLandmarker = null;
+let uploadedDataUrl = null;
+
+// ── File handling ──────────────────────────────────────────────────────────────
+dropZone.addEventListener('click', () => fileInput.click());
+
+dropZone.addEventListener('dragover', (e) => {
+  e.preventDefault();
+  dropZone.classList.add('dragover');
+});
+dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
+dropZone.addEventListener('drop', (e) => {
+  e.preventDefault();
+  dropZone.classList.remove('dragover');
+  const file = e.dataTransfer.files[0];
+  if (file && file.type.startsWith('image/')) handleFile(file);
+});
+
+fileInput.addEventListener('change', () => {
+  if (fileInput.files[0]) handleFile(fileInput.files[0]);
+});
+
+function handleFile(file) {
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    uploadedDataUrl = e.target.result;
+    previewImg.src = uploadedDataUrl;
+    previewImg.style.display = 'block';
+    dropZone.classList.add('has-image');
+    compareBtn.disabled = false;
+  };
+  reader.readAsDataURL(file);
+}
+
+// ── Load model ────────────────────────────────────────────────────────────────
+async function loadModel() {
+  if (faceLandmarker) return;
+  const vision = await FilesetResolver.forVisionTasks(
+    'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.18/wasm'
+  );
+  faceLandmarker = await FaceLandmarker.createFromOptions(vision, {
+    baseOptions: {
+      modelAssetPath: 'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task',
+      delegate: 'GPU'
+    },
+    runningMode: 'IMAGE',
+    numFaces: 1,
+    minFaceDetectionConfidence: 0.5,
+    minFacePresenceConfidence: 0.5,
+    minTrackingConfidence: 0.5,
+  });
+}
+
+// ── Compare ───────────────────────────────────────────────────────────────────
+compareBtn.addEventListener('click', async () => {
+  if (!uploadedDataUrl) return;
+
+  compareBtn.disabled = true;
+  compareBtn.textContent = 'Cargando modelo…';
+  compareBtn.classList.add('loading');
+  resultStatus.textContent = '';
+
+  try {
+    await loadModel();
+
+    compareBtn.textContent = 'Analizando rostro…';
+
+    // Detect face in uploaded image
+    const img = new Image();
+    img.src = uploadedDataUrl;
+    await new Promise(r => { img.onload = r; });
+
+    const result = faceLandmarker.detect(img);
+
+    if (!result.faceLandmarks || result.faceLandmarks.length === 0) {
+      resultsList.innerHTML = '<div class="no-face-msg">No se detectó ningún rostro en la imagen. Probá con otra foto.</div>';
+      compareBtn.textContent = 'Comparar rostro';
+      compareBtn.disabled = false;
+      compareBtn.classList.remove('loading');
+      return;
+    }
+
+    const uploadedLandmarks = result.faceLandmarks[0];
+
+    compareBtn.textContent = 'Buscando coincidencias…';
+
+    // Fetch all people and their photos from DB
+    const { data: people, error: peopleErr } = await supabase
+      .from('people')
+      .select('id, name, created_at');
+
+    if (peopleErr) throw peopleErr;
+
+    const { data: photos, error: photosErr } = await supabase
+      .from('face_photos')
+      .select('id, person_id, photo_data, captured_at');
+
+    if (photosErr) throw photosErr;
+
+    if (!photos || photos.length === 0) {
+      resultsList.innerHTML = '<div class="no-face-msg">No hay fotos guardadas en la base de datos. Capturá fotos primero.</div>';
+      compareBtn.textContent = 'Comparar rostro';
+      compareBtn.disabled = false;
+      compareBtn.classList.remove('loading');
+      return;
+    }
+
+    // Compare uploaded face against each stored photo
+    const comparisons = [];
+
+    for (const photo of photos) {
+      const dbImg = new Image();
+      dbImg.src = photo.photo_data;
+      await new Promise(r => { dbImg.onload = r; dbImg.onerror = r; });
+
+      const dbResult = faceLandmarker.detect(dbImg);
+      if (!dbResult.faceLandmarks || dbResult.faceLandmarks.length === 0) continue;
+
+      const dbLandmarks = dbResult.faceLandmarks[0];
+      const similarity = computeSimilarity(uploadedLandmarks, dbLandmarks);
+
+      const person = people?.find(p => p.id === photo.person_id);
+      comparisons.push({
+        personName: person?.name || 'Desconocido',
+        photoData: photo.photo_data,
+        similarity,
+        photoId: photo.id,
+      });
+    }
+
+    // Sort by similarity descending
+    comparisons.sort((a, b) => b.similarity - a.similarity);
+
+    // Render results
+    renderResults(comparisons);
+
+  } catch (e) {
+    console.error(e);
+    resultStatus.textContent = 'Error: ' + (e instanceof Error ? e.message : String(e));
+  } finally {
+    compareBtn.textContent = 'Comparar rostro';
+    compareBtn.disabled = false;
+    compareBtn.classList.remove('loading');
+  }
+});
+
+function computeSimilarity(landmarksA, landmarksB) {
+  let totalDist = 0;
+  const count = Math.min(landmarksA.length, landmarksB.length);
+
+  for (let i = 0; i < count; i++) {
+    const dx = landmarksA[i].x - landmarksB[i].x;
+    const dy = landmarksA[i].y - landmarksB[i].y;
+    const dz = (landmarksA[i].z || 0) - (landmarksB[i].z || 0);
+    totalDist += Math.sqrt(dx * dx + dy * dy + dz * dz);
+  }
+
+  const avgDist = totalDist / count;
+  const score = Math.max(0, Math.min(100, (1 - avgDist / 0.15) * 100));
+  return Math.round(score);
+}
+
+function renderResults(comparisons) {
+  if (comparisons.length === 0) {
+    resultsList.innerHTML = '<div class="no-face-msg">No se pudieron extraer rostros de las fotos guardadas.</div>';
+    return;
+  }
+
+  resultsList.innerHTML = '';
+
+  for (const comp of comparisons) {
+    const level = comp.similarity >= 70 ? 'high' : comp.similarity >= 40 ? 'medium' : 'low';
+    const matchClass = comp.similarity >= 70 ? 'match' : 'no-match';
+
+    const card = document.createElement('div');
+    card.className = `result-card ${matchClass}`;
+    card.innerHTML = `
+      <img class="result-thumb" src="${comp.photoData}" alt="${comp.personName}" />
+      <div class="result-info">
+        <div class="result-name">${comp.personName}</div>
+        <div class="result-score">
+          <div class="score-bar"><div class="score-bar-fill ${level}" style="width:${comp.similarity}%"></div></div>
+          <span class="score-val ${level}">${comp.similarity}%</span>
+        </div>
+        <div class="result-label">${comp.similarity >= 70 ? 'COINCIDENCIA ALTA' : comp.similarity >= 40 ? 'SIMILITUD PARCIAL' : 'BAJA SIMILITUD'}</div>
+      </div>
+    `;
+    resultsList.appendChild(card);
+  }
+
+  const best = comparisons[0];
+  if (best.similarity >= 70) {
+    resultStatus.textContent = `Mejor coincidencia: ${best.personName} (${best.similarity}%)`;
+    resultStatus.style.color = '#00ff88';
+  } else {
+    resultStatus.textContent = 'No se encontró una coincidencia significativa';
+    resultStatus.style.color = '#f59e0b';
+  }
+}
+</script>

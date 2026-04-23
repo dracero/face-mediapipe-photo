@@ -10,6 +10,10 @@
       Alineá tu rostro dentro del óvalo.<br />
       La foto se toma automáticamente.
     </p>
+    <div class="name-input-group">
+      <label for="person-name" class="name-label">Nombre de la persona</label>
+      <input type="text" id="person-name" class="name-input" placeholder="Ej: Juan Pérez" autocomplete="off" />
+    </div>
     <button class="start-btn" id="start-btn">Iniciar cámara</button>
     <div class="loading-bar" id="loading-bar">
       <div class="loading-bar-fill"></div>
@@ -20,9 +24,12 @@
 <!-- Header -->
 <header>
   <div class="logo">FACE<span>CAPTURE</span></div>
-  <div class="status-pill" id="status-pill">
+  <div class="header-right">
+    <a href="/compare" class="nav-btn">Comparar rostros</a>
+    <div class="status-pill" id="status-pill">
     <div class="status-dot"></div>
     <span id="status-text">INACTIVO</span>
+    </div>
   </div>
 </header>
 
@@ -109,6 +116,29 @@
     color: #fff;
   }
   .logo span { color: #00ff88; }
+
+  .header-right {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .nav-btn {
+    padding: 6px 14px;
+    background: rgba(0,255,136,0.1);
+    border: 1px solid rgba(0,255,136,0.3);
+    color: #00ff88;
+    font-family: 'DM Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 0.06em;
+    border-radius: 100px;
+    text-decoration: none;
+    transition: background 0.2s, border-color 0.2s;
+  }
+  .nav-btn:hover {
+    background: rgba(0,255,136,0.2);
+    border-color: rgba(0,255,136,0.5);
+  }
 
   main {
     display: flex;
@@ -426,6 +456,32 @@
     letter-spacing: 0.03em;
   }
 
+  .name-input-group {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    width: 280px;
+  }
+  .name-label {
+    font-size: 10px;
+    letter-spacing: 0.1em;
+    color: #555;
+    text-align: left;
+  }
+  .name-input {
+    background: #141414;
+    border: 1px solid #2a2a2a;
+    border-radius: 8px;
+    padding: 12px 16px;
+    color: #e8e8e8;
+    font-family: 'DM Mono', monospace;
+    font-size: 13px;
+    outline: none;
+    transition: border-color 0.2s;
+  }
+  .name-input:focus { border-color: #00ff88; }
+  .name-input::placeholder { color: #444; }
+
   .start-btn {
     margin-top: 8px;
     padding: 14px 36px;
@@ -502,11 +558,39 @@
     opacity: 0;
   }
 
+  /* ── Save indicator ──────────────────────────────────────────────────── */
+  .save-indicator {
+    position: absolute;
+    top: 12px;
+    right: 12px;
+    padding: 4px 10px;
+    border-radius: 100px;
+    font-size: 10px;
+    letter-spacing: 0.08em;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.3s;
+  }
+  .save-indicator.saving {
+    opacity: 1;
+    background: rgba(59,130,246,0.2);
+    border: 1px solid rgba(59,130,246,0.4);
+    color: #3b82f6;
+  }
+  .save-indicator.saved {
+    opacity: 1;
+    background: rgba(0,255,136,0.15);
+    border: 1px solid rgba(0,255,136,0.3);
+    color: #00ff88;
+  }
+
   /* ── Responsive ──────────────────────────────────────────────────────── */
   @media (max-width: 768px) {
     main { flex-direction: column; overflow-y: auto; }
     .sidebar { width: 100%; min-width: unset; border-left: none; border-top: 1px solid #1a1a1a; }
     .camera-area { min-height: 50vh; }
+    .header-right { gap: 8px; }
+    .nav-btn { font-size: 10px; padding: 5px 10px; }
   }
 </style>
 
@@ -516,6 +600,7 @@ import {
   FilesetResolver,
   DrawingUtils
 } from 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.18/+esm';
+import { supabase } from '../lib/supabase';
 
 const video       = document.getElementById('video');
 const canvas      = document.getElementById('canvas');
@@ -536,6 +621,8 @@ let alignedSince   = null;
 let photosTaken    = 0;
 let isCoolingDown  = false;
 let lastVideoTime  = -1;
+let personId       = null;
+let personName     = '';
 
 const ALIGN_HOLD_MS = 1200;
 const COOLDOWN_MS   = 3000;
@@ -543,6 +630,16 @@ const MAX_PHOTOS    = 10;
 
 // ── Init ──────────────────────────────────────────────────────────────────────
 document.getElementById('start-btn').addEventListener('click', async () => {
+  const nameInput = document.getElementById('person-name');
+  personName = nameInput.value.trim();
+
+  if (!personName) {
+    nameInput.style.borderColor = '#ef4444';
+    nameInput.focus();
+    setTimeout(() => { nameInput.style.borderColor = ''; }, 1500);
+    return;
+  }
+
   const btn = document.getElementById('start-btn');
   const bar = document.getElementById('loading-bar');
   btn.disabled = true;
@@ -550,6 +647,17 @@ document.getElementById('start-btn').addEventListener('click', async () => {
   bar.classList.add('show');
 
   try {
+    // Create person in DB
+    const { data: person, error: personErr } = await supabase
+      .from('people')
+      .insert({ name: personName })
+      .select()
+      .maybeSingle();
+
+    if (personErr || !person) throw new Error('Error guardando persona: ' + (personErr?.message || ''));
+
+    personId = person.id;
+
     await startCamera();
     await loadModel();
     const screen = document.getElementById('start-screen');
@@ -748,6 +856,19 @@ async function takePhoto() {
   photosTaken++;
   addToGallery(dataUrl);
 
+  // Save to Supabase
+  showSaveIndicator('saving');
+  const { error } = await supabase
+    .from('face_photos')
+    .insert({ person_id: personId, photo_data: dataUrl });
+
+  if (error) {
+    console.error('Error saving photo:', error);
+    showSaveIndicator('error');
+  } else {
+    showSaveIndicator('saved');
+  }
+
   document.getElementById('bar-photos').style.width = (photosTaken / MAX_PHOTOS * 100) + '%';
   document.getElementById('val-photos').textContent = `${photosTaken}/${MAX_PHOTOS}`;
 
@@ -785,6 +906,32 @@ function addToGallery(dataUrl) {
   });
   gallery.prepend(item);
   photoCount.textContent = photosTaken;
+}
+
+// ── Save indicator ────────────────────────────────────────────────────────────
+function showSaveIndicator(state) {
+  let indicator = document.querySelector('.save-indicator');
+  if (!indicator) {
+    indicator = document.createElement('div');
+    indicator.className = 'save-indicator';
+    document.getElementById('viewport').appendChild(indicator);
+  }
+
+  if (state === 'saving') {
+    indicator.className = 'save-indicator saving';
+    indicator.textContent = 'GUARDANDO…';
+  } else if (state === 'saved') {
+    indicator.className = 'save-indicator saved';
+    indicator.textContent = 'GUARDADO';
+    setTimeout(() => { indicator.className = 'save-indicator'; }, 2000);
+  } else {
+    indicator.className = 'save-indicator saving';
+    indicator.textContent = 'ERROR';
+    indicator.style.color = '#ef4444';
+    indicator.style.borderColor = 'rgba(239,68,68,0.4)';
+    indicator.style.background = 'rgba(239,68,68,0.15)';
+    setTimeout(() => { indicator.className = 'save-indicator'; indicator.style.cssText = ''; }, 3000);
+  }
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
