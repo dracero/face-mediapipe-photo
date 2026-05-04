@@ -4,7 +4,9 @@
   "version": "0.0.1",
   "private": true,
   "scripts": {
-    "dev": "astro dev",
+    "dev": "concurrently \"npm run dev:frontend\" \"npm run dev:backend\"",
+    "dev:frontend": "astro dev",
+    "dev:backend": "cd backend && uv run uvicorn main:app --host 0.0.0.0 --port 8000 --reload",
     "build": "astro build",
     "preview": "astro preview",
     "astro": "astro",
@@ -15,11 +17,13 @@
   "dependencies": {
     "astro": "^5.2.5",
     "better-sqlite3": "^12.9.0",
+    "mongodb": "^7.2.0",
     "sql.js": "^1.14.1"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.13",
     "@types/sql.js": "^1.4.11",
+    "concurrently": "^9.2.1",
     "fast-check": "^4.7.0",
     "tsx": "^4.21.0",
     "vitest": "^1.6.1"

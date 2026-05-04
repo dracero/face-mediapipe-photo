@@ -1,0 +1,22 @@
+[project]
+name = "facecapture-backend"
+version = "0.1.0"
+description = "Backend API para FaceCapture con DeepFace + MongoDB"
+requires-python = ">=3.10"
+dependencies = [
+    "fastapi[standard]>=0.115.0",
+    "uvicorn>=0.30.6",
+    "pymongo[srv]>=4.8.0",
+    "deepface>=0.0.93",
+    "opencv-python-headless>=4.10.0",
+    "Pillow>=10.4.0",
+    "numpy>=1.26.4",
+    "tf-keras>=2.16.0",
+    "retina-face>=0.0.17",
+    "cmake>=3.25",
+    "dlib>=19.24",
+    "mediapipe>=0.10.14",
+]
+
+[project.scripts]
+serve = "uvicorn main:app --host 0.0.0.0 --port 8000 --reload"
