@@ -31,6 +31,7 @@
     <div class="viewport" id="viewport">
       <video id="video" autoplay muted playsinline></video>
       <canvas id="canvas" style="display:none;"></canvas>
+      <canvas id="crop-overlay" class="crop-overlay"></canvas>
       <div class="face-guide">
         <div class="face-oval" id="face-oval">
           <div class="bracket tl"></div><div class="bracket tr"></div>
@@ -52,6 +53,7 @@
         <div class="indicator" id="ind-face"><span class="ind-dot"></span>Rostro</div>
         <div class="indicator" id="ind-eyes"><span class="ind-dot"></span>Ojos abiertos</div>
         <div class="indicator" id="ind-mouth"><span class="ind-dot"></span>Boca cerrada</div>
+        <div class="indicator" id="ind-light"><span class="ind-dot"></span>Iluminación</div>
       </div>
     </div>
   </div>
@@ -117,7 +119,8 @@ header{position:fixed;top:0;left:0;right:0;height:56px;display:flex;align-items:
 main{display:flex;height:100vh;padding-top:56px}
 .camera-area{flex:1;display:flex}
 .viewport{flex:1;position:relative;display:flex;align-items:center;justify-content:center;background:#000;overflow:hidden}
-#video{width:100%;height:100%;object-fit:cover;transform:scaleX(-1)}
+#video{width:100%;height:100%;object-fit:cover;transform:scaleX(-1);filter:brightness(1.15) contrast(1.05)}
+.crop-overlay{position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;transform:scaleX(-1)}
 .face-guide{position:absolute;display:flex;flex-direction:column;align-items:center;gap:20px;pointer-events:none}
 .face-oval{position:relative;width:260px;height:320px;border:2px solid rgba(255,255,255,.2);border-radius:50%;transition:border-color .3s,box-shadow .3s}
 .face-oval.ready{border-color:#00ff88;box-shadow:0 0 24px rgba(0,255,136,.25)}
@@ -219,6 +222,8 @@ const lbDelete = document.getElementById('lb-delete');
 const indFace = document.getElementById('ind-face');
 const indEyes = document.getElementById('ind-eyes');
 const indMouth = document.getElementById('ind-mouth');
+const indLight = document.getElementById('ind-light');
+const cropOverlay = document.getElementById('crop-overlay');
 
 // ── State ─────────────────────────────────────────────────────────────────────
 let stream = null;
@@ -273,6 +278,7 @@ function connectWS() {
     const r = JSON.parse(e.data);
     if (r.error) return;
     updateIndicators(r);
+    drawCropBox(r);
     faceReady = r.ready === true;
     updateFaceUI(r);
   };
@@ -291,11 +297,67 @@ function startAnalysis() {
   }, 250); // ~4fps — MediaPipe es rápido
 }
 
+function drawCropBox(r) {
+  const oc = cropOverlay;
+  const vw = oc.parentElement.clientWidth;
+  const vh = oc.parentElement.clientHeight;
+  oc.width = vw;
+  oc.height = vh;
+  const ctx = oc.getContext('2d');
+  ctx.clearRect(0, 0, vw, vh);
+
+  if (!r.crop_box || !r.face_detected) return;
+
+  const b = r.crop_box;
+  // Coordenadas del video real (considerando object-fit:cover)
+  const videoRatio = video.videoWidth / video.videoHeight;
+  const viewRatio = vw / vh;
+  let sx, sy, sw, sh;
+  if (videoRatio > viewRatio) {
+    // Video más ancho: se recorta horizontal
+    sh = vh;
+    sw = vh * videoRatio;
+    sx = (vw - sw) / 2;
+    sy = 0;
+  } else {
+    // Video más alto: se recorta vertical
+    sw = vw;
+    sh = vw / videoRatio;
+    sx = 0;
+    sy = (vh - sh) / 2;
+  }
+
+  const x1 = sx + b.x1 * sw;
+  const y1 = sy + b.y1 * sh;
+  const x2 = sx + b.x2 * sw;
+  const y2 = sy + b.y2 * sh;
+  const bw = x2 - x1;
+  const bh = y2 - y1;
+
+  // Oscurecer todo fuera del recuadro
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
+  ctx.fillRect(0, 0, vw, vh);
+  ctx.clearRect(x1, y1, bw, bh);
+
+  // Borde del recuadro
+  ctx.strokeStyle = r.ready ? '#00ff88' : '#ff9500';
+  ctx.lineWidth = 2;
+  ctx.strokeRect(x1, y1, bw, bh);
+
+  // Label
+  ctx.fillStyle = r.ready ? '#00ff88' : '#ff9500';
+  ctx.font = '12px Inter, sans-serif';
+  ctx.fillText('4×4 cm', x1 + 4, y1 - 6);
+}
+
 function updateIndicators(r) {
   indFace.className = 'indicator ' + (r.face_detected ? 'ok' : 'fail');
   indEyes.className = 'indicator ' + (r.eyes_open ? 'ok' : 'fail');
   indMouth.className = 'indicator ' + (r.mouth_closed ? 'ok' : 'fail');
-  // Debug: mostrar valores de blendshapes
+  indLight.className = 'indicator ' + (r.good_lighting ? 'ok' : 'fail');
+  if (r.lighting_msg) {
+    indLight.title = r.lighting_msg;
+  }
   if (r.blink_l !== undefined) {
     indEyes.title = `L:${r.blink_l} R:${r.blink_r}`;
     indMouth.title = `jaw:${r.jaw_open}`;
@@ -313,6 +375,7 @@ function updateFaceUI(r) {
     let msg = [];
     if (!r.eyes_open) msg.push('abrí los ojos');
     if (!r.mouth_closed) msg.push('cerrá la boca');
+    if (!r.good_lighting) msg.push(r.lighting_msg || 'mejorá la luz');
     faceStatus.textContent = msg.length ? msg.join(' y ') : 'Ajustá posición';
     faceStatus.className = 'face-status partial';
     captureBtn.disabled = true;

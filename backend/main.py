@@ -7,7 +7,11 @@ Guarda fotos en MongoDB Atlas.
 import base64
 import io
 import logging
+import os
 from datetime import datetime, timezone
+from dotenv import load_dotenv
+
+load_dotenv()
 
 import cv2
 import numpy as np
@@ -23,12 +27,12 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # ── MongoDB ────────────────────────────────────────────────────────────────────
-MONGO_URI = (
-    "mongodb+srv://root:juana99@cluster0.zf9fl.mongodb.net/?appName=Cluster0"
-)
+MONGO_URI = os.getenv("MONGO_URI", "mongodb://localhost:27017")
+MONGO_DB = os.getenv("MONGO_DB", "face_capture")
+MONGO_COLLECTION = os.getenv("MONGO_COLLECTION", "fotos")
 mongo_client = MongoClient(MONGO_URI)
-mongo_db = mongo_client["face_capture"]
-photos_collection = mongo_db["fotos"]
+mongo_db = mongo_client[MONGO_DB]
+photos_collection = mongo_db[MONGO_COLLECTION]
 
 # ── Constantes ─────────────────────────────────────────────────────────────────
 # 4 cm ≈ 1.5748 in → a 300 DPI = 472 px
@@ -86,8 +90,10 @@ def analyze_face(img_bgr: np.ndarray) -> dict:
     - Detección de rostro: MediaPipe (integrado en FaceLandmarker).
     - Ojos: blendshapes eyeBlinkLeft / eyeBlinkRight.
     - Boca: blendshape jawOpen.
+    - Iluminación: brillo promedio y uniformidad (izq vs der) del rostro.
     """
-    # Convertir BGR → RGB para MediaPipe
+    h, w = img_bgr.shape[:2]
+    gray = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2GRAY)
     img_rgb = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)
     mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=img_rgb)
 
@@ -96,14 +102,49 @@ def analyze_face(img_bgr: np.ndarray) -> dict:
     has_face = len(result.face_landmarks) > 0
 
     if not has_face:
+        avg_brightness = float(np.mean(gray))
         return {
             "face_detected": False,
             "eyes_open": False,
             "mouth_closed": False,
+            "good_lighting": avg_brightness > 80,
+            "lighting_msg": "",
             "ready": False,
         }
 
-    # Extraer blendshapes
+    # --- Analizar iluminación del rostro ---
+    lms = result.face_landmarks[0]
+    # Obtener bounding box del rostro desde landmarks
+    xs = [lm.x * w for lm in lms]
+    ys = [lm.y * h for lm in lms]
+    fx1, fx2 = int(max(0, min(xs))), int(min(w, max(xs)))
+    fy1, fy2 = int(max(0, min(ys))), int(min(h, max(ys)))
+    face_roi = gray[fy1:fy2, fx1:fx2]
+
+    good_lighting = True
+    lighting_msg = ""
+    if face_roi.size > 0:
+        face_brightness = float(np.mean(face_roi))
+        # Dividir rostro en mitad izquierda y derecha
+        mid_x = face_roi.shape[1] // 2
+        left_half = face_roi[:, :mid_x]
+        right_half = face_roi[:, mid_x:]
+        left_brightness = float(np.mean(left_half)) if left_half.size > 0 else 0
+        right_brightness = float(np.mean(right_half)) if right_half.size > 0 else 0
+        # Diferencia entre lados (detecta sombras laterales)
+        side_diff = abs(left_brightness - right_brightness)
+
+        if face_brightness < 80:
+            good_lighting = False
+            lighting_msg = "poca luz en el rostro"
+        elif side_diff > 40:
+            good_lighting = False
+            darker = "izquierdo" if left_brightness < right_brightness else "derecho"
+            lighting_msg = f"sombra en lado {darker}"
+    else:
+        face_brightness = 0.0
+
+    # --- Extraer blendshapes ---
     blendshapes = {}
     if result.face_blendshapes and len(result.face_blendshapes) > 0:
         for bs in result.face_blendshapes[0]:
@@ -116,13 +157,36 @@ def analyze_face(img_bgr: np.ndarray) -> dict:
     eyes_open = blink_left < BLINK_THRESHOLD and blink_right < BLINK_THRESHOLD
     mouth_closed = jaw_open < JAW_OPEN_THRESHOLD
 
-    ready = bool(has_face and eyes_open and mouth_closed)
+    # --- Calcular área de recorte 4×4 (preview) ---
+    # Centro del rostro desplazado hacia arriba para incluir toda la cabeza
+    face_w = fx2 - fx1
+    face_h = fy2 - fy1
+    cx = (fx1 + fx2) / 2
+    cy = (fy1 + fy2) / 2 - face_h * 0.15  # Subir 15% para frente/cabeza
+    pad = 0.55
+    size = max(face_w, face_h) * (1 + pad)
+    crop_x1 = max(0, cx - size / 2)
+    crop_y1 = max(0, cy - size / 2)
+    crop_x2 = min(w, crop_x1 + size)
+    crop_y2 = min(h, crop_y1 + size)
+    # Normalizar a 0-1 para el frontend
+    crop_box = {
+        "x1": round(crop_x1 / w, 4),
+        "y1": round(crop_y1 / h, 4),
+        "x2": round(crop_x2 / w, 4),
+        "y2": round(crop_y2 / h, 4),
+    }
+
+    ready = bool(has_face and eyes_open and mouth_closed and good_lighting)
 
     return {
         "face_detected": True,
         "eyes_open": bool(eyes_open),
         "mouth_closed": bool(mouth_closed),
+        "good_lighting": bool(good_lighting),
+        "lighting_msg": lighting_msg,
         "ready": bool(ready),
+        "crop_box": crop_box,
         "blink_l": round(float(blink_left), 3),
         "blink_r": round(float(blink_right), 3),
         "jaw_open": round(float(jaw_open), 3),
@@ -148,9 +212,9 @@ def crop_face_4x4(img_bgr: np.ndarray) -> str | None:
         x, y, w_f, h_f = fa["x"], fa["y"], fa["w"], fa["h"]
         h_img, w_img = img_bgr.shape[:2]
 
-        # Expandir 40 % para frente y mentón
-        pad = 0.40
-        cx, cy = x + w_f // 2, y + h_f // 2
+        # Expandir 55% y subir centro para incluir toda la cabeza
+        pad = 0.55
+        cx, cy = x + w_f // 2, y + h_f // 2 - int(h_f * 0.15)
         size = int(max(w_f, h_f) * (1 + pad))
 
         x1 = max(0, cx - size // 2)

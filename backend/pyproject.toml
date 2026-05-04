@@ -16,6 +16,7 @@ dependencies = [
     "cmake>=3.25",
     "dlib>=19.24",
     "mediapipe>=0.10.14",
+    "python-dotenv>=1.0.0",
 ]
 
 [project.scripts]
