@@ -15,12 +15,15 @@
     "test:pbt": "vitest --reporter=verbose"
   },
   "dependencies": {
+    "@capacitor/core": "^8.3.1",
     "astro": "^5.2.5",
     "better-sqlite3": "^12.9.0",
     "mongodb": "^7.2.0",
     "sql.js": "^1.14.1"
   },
   "devDependencies": {
+    "@capacitor/android": "^8.3.1",
+    "@capacitor/cli": "^8.3.1",
     "@types/better-sqlite3": "^7.6.13",
     "@types/sql.js": "^1.4.11",
     "concurrently": "^9.2.1",

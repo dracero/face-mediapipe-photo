@@ -270,8 +270,11 @@ startBtn.addEventListener('click', async () => {
 
 // ── WebSocket ─────────────────────────────────────────────────────────────────
 function connectWS() {
+  // En Capacitor (celular) usamos la IP de la PC. En local usamos location.host.
+  const envUrl = import.meta.env.PUBLIC_WS_URL;
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-  ws = new WebSocket(`${proto}://${location.host}/ws/analyze`);
+  const url = envUrl ? `${envUrl}/ws/analyze` : `${proto}://${location.host}/ws/analyze`;
+  ws = new WebSocket(url);
   ws.onopen = () => { console.log('WS conectado'); startAnalysis(); };
   ws.onmessage = (e) => {
     analyzing = false;
@@ -398,7 +401,8 @@ captureBtn.addEventListener('click', async () => {
     ctx.drawImage(video, 0, 0);
     const imgData = canvas.toDataURL('image/jpeg', 0.92);
 
-    const resp = await fetch('/api/photos', {
+    const envApiUrl = import.meta.env.PUBLIC_API_URL || '';
+    const resp = await fetch(`${envApiUrl}/api/photos`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name: currentName, image: imgData }),
@@ -430,7 +434,8 @@ modalOverlay.addEventListener('click', (e) => { if (e.target === modalOverlay) m
 
 async function loadPhotos() {
   try {
-    const resp = await fetch('/api/photos');
+    const envApiUrl = import.meta.env.PUBLIC_API_URL || '';
+    const resp = await fetch(`${envApiUrl}/api/photos`);
     const data = await resp.json();
     photos = data.photos || [];
     renderGallery();
@@ -486,7 +491,8 @@ lbDelete.addEventListener('click', async () => {
 
 async function deletePhoto(id) {
   try {
-    await fetch(`/api/photos/${id}`, { method: 'DELETE' });
+    const envApiUrl = import.meta.env.PUBLIC_API_URL || '';
+    await fetch(`${envApiUrl}/api/photos/${id}`, { method: 'DELETE' });
     await loadPhotos();
   } catch (e) {
     alert('Error al eliminar');
